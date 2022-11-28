@@ -75,38 +75,40 @@ Enter the downloaded DWIN_T5UIC1_LCD folder.
 Make new file run.py and copy/paste in the following (pick one)
 
 For an Ender3v2
+
 ```python
 #!/usr/bin/env python3
-from dwinlcd import DWIN_LCD
+from dwinlcd import DWinLcd
 
 encoder_Pins = (26, 19)
 button_Pin = 13
 LCD_COM_Port = '/dev/ttyAMA0'
 API_Key = 'XXXXXX'
 
-DWINLCD = DWIN_LCD(
-	LCD_COM_Port,
-	encoder_Pins,
-	button_Pin,
-	API_Key
+DWINLCD = DWinLcd(
+    LCD_COM_Port,
+    encoder_Pins,
+    button_Pin,
+    API_Key
 )
 ```
 
 If your control wheel is reversed (Voxelab Aquila) use this instead.
+
 ```python
 #!/usr/bin/env python3
-from dwinlcd import DWIN_LCD
+from dwinlcd import DWinLcd
 
 encoder_Pins = (19, 26)
 button_Pin = 13
 LCD_COM_Port = '/dev/ttyAMA0'
 API_Key = 'XXXXXX'
 
-DWINLCD = DWIN_LCD(
-	LCD_COM_Port,
-	encoder_Pins,
-	button_Pin,
-	API_Key
+DWINLCD = DWinLcd(
+    LCD_COM_Port,
+    encoder_Pins,
+    button_Pin,
+    API_Key
 )
 ```
 
