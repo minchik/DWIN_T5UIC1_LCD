@@ -128,7 +128,7 @@ class T5UIC1_LCD:
 	#  luminance: (0x00-0xFF)
 	def Backlight_SetLuminance(self, luminance):
 		self.Byte(0x30)
-		self.Byte(_MAX(luminance, 0x1F))
+		self.Byte(max(luminance, 0x1F))
 		self.Send()
 
 	# Set screen display direction
