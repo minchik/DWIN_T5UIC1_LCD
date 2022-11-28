@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "dwin-t5uic1-lcd"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{include = "dwin_t5uic1_lcd"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+gpiozero = "^1.6.2"
+requests = "^2.28.1"
+multitimer = "^0.3"
+pyserial = "^3.5"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

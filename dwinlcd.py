@@ -1,6 +1,7 @@
 import time
 import multitimer
 import atexit
+import logging
 
 from encoder import Encoder
 from RPi import GPIO
@@ -288,7 +289,16 @@ class DWinLcd:
     # Passing parameters: serial port number
     # DWIN screen uses serial port 1 to send
     def __init__(self, usart_x, encoder_pins, button_pin, octo_api_key):
+        self.pd = PrinterData(octo_api_key)
+
+        while self.pd.status is None:
+            logging.debug("Waiting for printer status...")
+            self.pd.init_webservices()
+            time.sleep(5)
+
         GPIO.setmode(GPIO.BCM)
+        self.lcd = T5UIC1_LCD(usart_x)
+        self.hmi_show_boot("Loading...")
         self.encoder = Encoder(encoder_pins[0], encoder_pins[1])
         self.button_pin = button_pin
         GPIO.setup(self.button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -299,18 +309,13 @@ class DWinLcd:
         self.EncodeEnter = current_milli_time() + self.ENCODER_WAIT_ENTER
         self.next_rts_update_ms = 0
         self.last_card_percent_value = 101
-        self.lcd = T5UIC1_LCD(usart_x)
+
         self.check_key = self.MainMenu
-        self.pd = PrinterData(octo_api_key)
         self.timer = multitimer.MultiTimer(interval=2, function=self.each_moment_update)
         self.hmi_show_boot()
         print("Boot looks good")
         print("Testing Web-services")
         self.pd.init_webservices()
-        while self.pd.status is None:
-            print("No Web-services")
-            self.pd.init_webservices()
-            self.hmi_show_boot("Web-service still loading")
         self.hmi_init()
         self.hmi_start_frame(False)
 

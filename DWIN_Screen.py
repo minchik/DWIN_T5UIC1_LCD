@@ -2,6 +2,7 @@ import time
 import math
 import serial
 import struct
+import logging
 
 
 class T5UIC1_LCD:
@@ -59,10 +60,10 @@ class T5UIC1_LCD:
 		self.MYSERIAL1 = serial.Serial(USARTx, 115200, timeout=1)
 		# self.bus = SMBus(1)
 		# self.DWIN_SendBuf = self.FHONE
-		print("\nDWIN handshake ")
+		logging.info("DWIN handshake")
 		while not self.Handshake():
 			pass
-		print("DWIN OK.")
+		logging.info("DWIN OK.")
 		self.JPG_ShowAndCache(0)
 		self.Frame_SetDir(1)
 		self.UpdateLCD()

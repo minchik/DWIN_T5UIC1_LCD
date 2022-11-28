@@ -98,6 +98,7 @@ class MaterialPreset:
 
 class KlippySocket:
     def __init__(self, uds_filename, callback=None):
+        self.uds_filename = uds_filename
         self.webhook_socket = self.webhook_socket_create(uds_filename)
         self.lock = threading.Lock()
         self.poll = select.poll()
@@ -109,39 +110,45 @@ class KlippySocket:
         self.lines = []
         self.t.start()
         atexit.register(self.klippy_exit)
+        logging.info("KlippySocket initialized")
 
     def klippy_exit(self):
-        print("Shutting down Klippy Socket")
+        logging.info("Shutting down Klippy Socket")
         self.stop_threads = True
         self.t.join()
 
     @staticmethod
     def webhook_socket_create(uds_filename):
+        logging.info("Creating Klippy Socket")
         webhook_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         webhook_socket.setblocking(False)
-        print("Waiting for connect to %s\n" % (uds_filename,))
+        logging.info("Waiting for connect to %s" % (uds_filename,))
         while 1:
             try:
                 webhook_socket.connect(uds_filename)
             except socket.error as e:
-                if e.errno == errno.ECONNREFUSED:
-                    time.sleep(0.1)
-                    continue
-                print(
-                    "Unable to connect socket %s [%d,%s]\n" % (
+                logging.error(
+                    "Unable to connect socket %s [%d,%s]" % (
                         uds_filename, e.errno,
                         errno.errorcode[e.errno]
                     ))
-                exit(-1)
+                time.sleep(5)
+                continue
+            except Exception as e:
+                logging.error("Unable to connect socket %s [%s]" % (
+                    uds_filename, e))
+                time.sleep(5)
+                continue
             break
-        print("Connection.\n")
+        logging.info("Connection to klipper socket established.")
         return webhook_socket
 
     def process_socket(self):
         data = self.webhook_socket.recv(4096).decode()
         if not data:
-            print("Socket closed\n")
-            exit(0)
+            logging.error("Klipper socket closed")
+            self.webhook_socket = self.webhook_socket_create(self.uds_filename)
+            return
         parts = data.split('\x03')
         parts[0] = self.socket_data + parts[0]
         self.socket_data = parts.pop()
@@ -187,6 +194,48 @@ class MoonrakerSocket:
             'Content-Type': 'application/json'
         })
         self.base_address = 'http://' + address + ':' + str(port)
+
+    def __get_rest(self, path):
+        r = self.s.get(self.base_address + path)
+        if r.status_code != 200:
+            return {}
+        return r.json()
+
+    def get_version(self):
+        r = self.__get_rest(
+            '/machine/update/status?refresh=false'
+        )
+
+        return r.get('result', {}).get('version_info', {}).get('klipper', {}).get('version', 'unknown')
+
+    def is_printer_connected(self):
+        try:
+            r = self.__get_rest('/api/printer')
+        except ConnectionError:
+            logging.error('Cannot connect to Moonraker')
+            return False
+        logging.debug("Moonraker response: %s" % r)
+        return r.get("state", {}).get("flags", {}).get("operational", False)
+
+    def is_ready(self):
+        r = self.s.get(self.base_address + '/printer/objects/query?print_stats')
+        return r.status_code == 200
+
+    def get_printer_state(self):
+        r = self.__get_rest('/printer/objects/query?extruder&heater_bed&gcode_move&fan&virtual_sdcard&print_stats')
+        if 'result' in r:
+            return r['result']['status']
+
+        logging.error("Unable to get printer state, response: %s" % r)
+        return {}
+
+    def get_bed_size(self):
+        r = self.__get_rest('/printer/objects/query?toolhead')
+        return r.get('result', {}).get('status').get('toolhead', {}).get('axis_maximum', [0, 0, 0, 0])
+
+    def get_files(self):
+        r = self.__get_rest('/server/files/list')
+        return r.get('result', [])
 
 
 class PrinterData:
@@ -342,17 +391,6 @@ class PrinterData:
         self.send_g_code('PROBE_CALIBRATE')
         self.send_g_code('G1 Z0')
 
-    # ------------- OctoPrint Function ----------
-
-    def get_rest(self, path):
-        r = self.op.s.get(self.op.base_address + path)
-        d = r.content.decode('utf-8')
-        try:
-            return json.loads(d)
-        except json.JSONDecodeError:
-            print('Decoding JSON has failed')
-        return None
-
     def _post_rest(self, path, data):
         self.op.s.post(self.op.base_address + path, json=data)
 
@@ -360,26 +398,12 @@ class PrinterData:
         self.event_loop.call_soon_threadsafe(asyncio.create_task, self._post_rest(path, data))
 
     def init_webservices(self):
-        try:
-            requests.get(self.op.base_address)
-        except ConnectionError:
-            print('Web site does not exist')
-            return
-        else:
-            print('Web site exists')
-        if self.get_rest('/api/printer') is None:
+        if not self.op.is_printer_connected():
             return
         self.update_variable()
-        # alternative approach
-        # full_version = self.getREST('/printer/info')['result']['software_version']
-        # self.SHORT_BUILD_VERSION = '-'.join(full_version.split('-',2)[:2])
-        self.SHORT_BUILD_VERSION = self.get_rest(
-            '/machine/update/status?refresh=false'
-        )['result']['version_info']['klipper']['version']
+        self.SHORT_BUILD_VERSION = self.op.get_version()
 
-        data = self.get_rest('/printer/objects/query?toolhead')['result']['status']
-        toolhead = data['toolhead']
-        volume = toolhead['axis_maximum']  # [x,y,z,w]
+        volume = self.op.get_bed_size()  # [x,y,z,w]
         self.MACHINE_SIZE = "{}x{}x{}".format(
             int(volume[0]),
             int(volume[1]),
@@ -387,18 +411,21 @@ class PrinterData:
         )
         self.X_MAX_POS = int(volume[0])
         self.Y_MAX_POS = int(volume[1])
+        logging.info("WebServices initialized")
 
     def get_files(self, refresh=False):
         if not self.files or refresh:
-            self.files = self.get_rest('/server/files/list')["result"]
+            self.files = self.op.get_files()
         names = []
         for fl in self.files:
             names.append(fl["path"])
         return names
 
     def update_variable(self):
-        query = '/printer/objects/query?extruder&heater_bed&gcode_move&fan'
-        data = self.get_rest(query)['result']['status']
+        data = self.op.get_printer_state()
+        update = False
+        if len(data) == 0:
+            return update
         gcm = data['gcode_move']
         z_offset = gcm['homing_origin'][2]  # z offset
         # flow_rate = gcm['extrude_factor'] * 100  # flow rate percent
@@ -409,7 +436,6 @@ class PrinterData:
         bed = data['heater_bed']  # temperature, target
         extruder = data['extruder']  # temperature, target
         fan = data['fan']
-        update = False
         try:
             if self.thermal_manager['temp_bed']['celsius'] != int(bed['temperature']):
                 self.thermal_manager['temp_bed']['celsius'] = int(bed['temperature'])
@@ -432,11 +458,11 @@ class PrinterData:
                 update = True
         except Exception as e:
             logging.error("unknown key, {}".format(e))
-        self.job_info = self.get_rest('/printer/objects/query?virtual_sdcard&print_stats')['result']['status']
-        if self.job_info:
-            self.file_name = self.job_info['print_stats']['filename']
-            self.status = self.job_info['print_stats']['state']
-            self.HMI_flag.print_finish = self.get_percent() == 100.0
+
+        self.job_info = {"virtual_sdcard": data['virtual_sdcard'], "print_stats": data['print_stats']}
+        self.file_name = self.job_info['print_stats']['filename']
+        self.status = self.job_info['print_stats']['state']
+        self.HMI_flag.print_finish = self.get_percent() == 100.0
         return update
 
     def printing_is_paused(self):
