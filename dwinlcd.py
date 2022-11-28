@@ -1685,7 +1685,7 @@ class DWinLcd:
         if not percent_record:
             percent_record = self.pd.get_percent()
         self.lcd.ICON_Show(self.ICON, self.ICON_Bar, 15, 93)
-        self.lcd.Draw_Rectangle(1, self.lcd.BarFill_Color, 16 + percent_record * 240 / 100, 93, 256, 113)
+        self.lcd.Draw_Rectangle(1, self.lcd.BarFill_Color, 16 + percent_record * 240 / 100, 93, 256, 104)
         self.lcd.Draw_IntValue(
             True, True, 0, self.lcd.font8x16, self.lcd.Percent_Color,
             self.lcd.Color_Bg_Black, 2, 117, 133, percent_record
